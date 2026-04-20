@@ -1,0 +1,36 @@
+[build-system]
+requires = [
+    "scikit-build-core>=0.8",
+    "pybind11>=2.12",
+    "cmake>=3.18",
+]
+build-backend = "scikit_build_core.build"
+
+[project]
+name = "ggrepel_py"
+version = "0.9.8.9999"
+description = "Python port of the R ggrepel package: non-overlapping text/label layout for ggplot2_py."
+requires-python = ">=3.10"
+license = "GPL-3.0-or-later"
+authors = [{name = "ggrepel_py contributors"}]
+dependencies = [
+    "numpy>=1.24",
+    "pandas>=2.0",
+    "ggplot2_py",
+    "scales_py",
+    "grid_py",
+    "gtable_py",
+]
+
+[project.optional-dependencies]
+dev = ["pytest", "pytest-cov", "ruff"]
+docs = ["mkdocs", "mkdocstrings[python]", "mkdocs-material", "mkdocs-jupyter"]
+
+[tool.scikit-build]
+cmake.version = ">=3.18"
+cmake.build-type = "Release"
+wheel.packages = ["ggrepel_py"]
+wheel.install-dir = "."
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
