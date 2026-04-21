@@ -49,7 +49,9 @@ from ggrepel_py._utilities import (
     null_default,
     to_unit,
 )
+from ggrepel_py._options import get_option as _get_option
 from ggrepel_py.geom_text_repel import (
+    _UNSET,
     _as_float_array,
     _convert_height_native,
     _convert_width_native,
@@ -407,9 +409,10 @@ class LabelRepelTree(GTree):
 
         too_many = np.asarray(repel["too_many_overlaps"], dtype=bool)
         if self.verbose and too_many.any():
-            import warnings
+            # Matches R ``geom-label-repel.R`` (``rlang::inform``).
+            from ggrepel_py._options import inform as _inform
             n_skip = int(too_many.sum())
-            warnings.warn(
+            _inform(
                 f"ggrepel: {n_skip} unlabeled data point(s) (too many overlaps). "
                 "Consider increasing `max_overlaps`."
             )
@@ -575,7 +578,18 @@ class GeomLabelRepel(GeomLabel):
         verbose: bool = False,
         **_: Any,
     ) -> Any:
+        if parse:
+            # R's geom-label-repel.R:138-140 passes labels through
+            # ``parse_safe`` (plotmath).  Python grid has no plotmath
+            # renderer, so we reject rather than drop the flag silently.
+            raise NotImplementedError(
+                "geom_label_repel does not support parse=True "
+                "(Python grid has no plotmath renderer)"
+            )
         if data is None or len(data) == 0:
+            return null_grob()
+        # Early-exit when every label is empty — mirrors R geom-label-repel.R:141-143.
+        if "label" in data.columns and not any(not_empty(data["label"])):
             return null_grob()
         data = data.reset_index(drop=True).copy()
 
@@ -622,8 +636,16 @@ class GeomLabelRepel(GeomLabel):
         ylim_arr = _norm_lim(ylim)
         xlim_na = np.isnan(xlim_arr)
         ylim_na = np.isnan(ylim_arr)
+        xlim_inf = np.isinf(xlim_arr)
+        ylim_inf = np.isinf(ylim_arr)
         limits_df = pd.DataFrame({"x": xlim_arr, "y": ylim_arr})
         limits_df = _t(coord, limits_df)
+        # Restore Inf entries that ``coord_transform`` may have lost
+        # (R geom-label-repel.R:191-196).
+        if xlim_inf.any():
+            limits_df.loc[xlim_inf, "x"] = xlim_arr[xlim_inf]
+        if ylim_inf.any():
+            limits_df.loc[ylim_inf, "y"] = ylim_arr[ylim_inf]
         limits_df.loc[xlim_na, "x"] = np.array([0.0, 1.0])[xlim_na]
         limits_df.loc[ylim_na, "y"] = np.array([0.0, 1.0])[ylim_na]
 
@@ -686,7 +708,7 @@ def geom_label_repel(
     force_pull: float = 1.0,
     max_time: float = 0.5,
     max_iter: int = 10000,
-    max_overlaps: float = 10,
+    max_overlaps: Any = _UNSET,
     nudge_x: Any = 0,
     nudge_y: Any = 0,
     xlim: Any = (None, None),
@@ -695,11 +717,21 @@ def geom_label_repel(
     show_legend: Any = None,
     direction: str = "both",
     seed: Any = None,
-    verbose: bool = False,
+    verbose: Any = _UNSET,
     inherit_aes: bool = True,
     **kwargs: Any,
 ) -> Any:
     """Repulsive label layer. Port of R ``geom_label_repel()``."""
+    if direction not in ("both", "x", "y"):
+        # Matches R's ``match.arg(direction)`` validation.
+        raise ValueError(
+            f"`direction` must be one of 'both', 'x', 'y'; got {direction!r}"
+        )
+    # Resolve option-backed defaults at call time (geom-label-repel.R:25,34).
+    if max_overlaps is _UNSET:
+        max_overlaps = _get_option("ggrepel.max.overlaps", 10)
+    if verbose is _UNSET:
+        verbose = _get_option("verbose", False)
     if (nudge_x != 0 or nudge_y != 0) and position != "identity":
         raise ValueError(
             "Both `position` and `nudge_x`/`nudge_y` are supplied. "

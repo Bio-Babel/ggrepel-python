@@ -48,6 +48,29 @@ from ggplot2_py.layer import layer as _layer
 from scales import alpha as _alpha
 
 from ggrepel_py import _repel
+from ggrepel_py._options import get_option as _get_option
+
+# Sentinel used to detect whether callers explicitly passed ``max_overlaps``
+# / ``verbose``.  R's ``getOption(...)`` is re-evaluated on every call; we
+# reproduce that by reading from the options dict inside the factory body,
+# rather than baking the value into the signature's default expression (which
+# would snapshot it at module-load time).
+_UNSET: Any = object()
+
+
+def _bg_colour_with_alpha(bg_colour: Any, alpha: Any) -> Any:
+    """``bg_colour`` pre-multiplied by row ``alpha`` — matching R's
+    ``alpha(row$bg.colour, row$alpha)`` in ``geom-text-repel.R:531``.
+
+    Propagates a ``None`` / ``NaN`` ``bg_colour`` unchanged so the halo
+    continues to be skipped (see ``_shadowtext_grobs``).
+    """
+    if bg_colour is None:
+        return None
+    if isinstance(bg_colour, float) and math.isnan(bg_colour):
+        return None
+    return _alpha(bg_colour, alpha)
+
 from ggrepel_py._utilities import (
     PT,
     compute_just,
@@ -139,15 +162,11 @@ def _shadowtext_grobs(
     if bg_colour is None or (isinstance(bg_colour, float) and math.isnan(bg_colour)):
         return [upper]
 
-    # Render a halo of 16 offset textGrobs underneath.
-    halo_gp = Gpar(**{**gp.params, "col": bg_colour}) if hasattr(gp, "params") else Gpar(col=bg_colour)
-    try:
-        # Prefer merging the original Gpar fields so font face / family carry over.
-        merged = dict(getattr(gp, "_params", {}) or {})
-        merged["col"] = bg_colour
-        halo_gp = Gpar(**merged)
-    except Exception:
-        halo_gp = Gpar(col=bg_colour)
+    # Render a halo of 16 offset textGrobs underneath.  R's ``shadowtextGrob``
+    # (geom-text-repel.R:761) simply mutates ``gp$col <- bg.colour``; we
+    # rebuild a fresh Gpar with the same params plus the overridden col
+    # so that font face / family / etc. carry over.
+    halo_gp = Gpar(**{**gp.params, "col": bg_colour})
 
     char = "X"
     thetas = np.linspace(math.pi / 8, 2 * math.pi, 16)
@@ -525,9 +544,10 @@ class TextRepelTree(GTree):
 
         too_many = np.asarray(repel["too_many_overlaps"], dtype=bool)
         if self.verbose and too_many.any():
-            import warnings
+            # Matches R ``geom-text-repel.R:469-477`` (``rlang::inform``).
+            from ggrepel_py._options import inform as _inform
             n_skip = int(too_many.sum())
-            warnings.warn(
+            _inform(
                 f"ggrepel: {n_skip} unlabeled data point(s) (too many overlaps). "
                 "Consider increasing `max_overlaps`."
             )
@@ -604,7 +624,10 @@ class TextRepelTree(GTree):
                 min_segment_length=self.min_segment_length,
                 hjust=float(hjust_vals[i]),
                 vjust=float(vjust_vals[i]),
-                bg_colour=bg_colour_vals.iloc[i] if hasattr(bg_colour_vals, "iloc") else bg_colour_vals[i],
+                bg_colour=_bg_colour_with_alpha(
+                    bg_colour_vals.iloc[i] if hasattr(bg_colour_vals, "iloc") else bg_colour_vals[i],
+                    row.get("alpha"),
+                ),
                 bg_r=float(bg_r_vals[i]),
                 dim=(width_cm, height_cm),
             ))
@@ -679,7 +702,20 @@ class GeomTextRepel(GeomText):
         verbose: bool = False,
         **_: Any,
     ) -> Any:
+        if parse:
+            # R's geom-text-repel.R:281-283 passes labels through
+            # ``parse_safe`` (R plotmath expressions).  ggplot2_py has no
+            # plotmath renderer, so we reject this up-front instead of
+            # silently dropping the flag on the floor.
+            raise NotImplementedError(
+                "geom_text_repel does not support parse=True "
+                "(Python grid has no plotmath renderer)"
+            )
         if data is None or len(data) == 0:
+            return null_grob()
+        # Early-exit when every label is empty — mirrors R geom-text-repel.R:284-286
+        # which returns ``NULL`` (rendered as zeroGrob by ggplot2).
+        if "label" in data.columns and not any(not_empty(data["label"])):
             return null_grob()
         data = data.reset_index(drop=True).copy()
 
@@ -708,7 +744,11 @@ class GeomTextRepel(GeomText):
         data["nudge_x"] = nudges["x"].to_numpy() - data["x"].to_numpy()
         data["nudge_y"] = nudges["y"].to_numpy() - data["y"].to_numpy()
 
-        # Build limits DataFrame; NaN/None → default range (0, 1).
+        # Build limits DataFrame and transform to panel scales, matching R
+        # ``geom-text-repel.R:325-343``: record NA status up-front (because
+        # ``coord$transform`` may convert NA to a valid value); after
+        # transform, restore Inf entries from the original limits; finally
+        # fill NAs with the default (0, 1) NPC range.
         def _norm_lim(lim: Any) -> np.ndarray:
             if lim is None:
                 return np.array([np.nan, np.nan])
@@ -723,8 +763,16 @@ class GeomTextRepel(GeomText):
         ylim_arr = _norm_lim(ylim)
         xlim_na = np.isnan(xlim_arr)
         ylim_na = np.isnan(ylim_arr)
+        xlim_inf = np.isinf(xlim_arr)
+        ylim_inf = np.isinf(ylim_arr)
         limits_df = pd.DataFrame({"x": xlim_arr, "y": ylim_arr})
         limits_df = _coord_transform(coord, limits_df, panel_params)
+        # Restore Inf entries that ``coord_transform`` may have lost
+        # (R geom-text-repel.R:334-339).
+        if xlim_inf.any():
+            limits_df.loc[xlim_inf, "x"] = xlim_arr[xlim_inf]
+        if ylim_inf.any():
+            limits_df.loc[ylim_inf, "y"] = ylim_arr[ylim_inf]
         # Fill NA slots with defaults (0, 1).
         limits_df.loc[xlim_na, "x"] = np.array([0.0, 1.0])[xlim_na]
         limits_df.loc[ylim_na, "y"] = np.array([0.0, 1.0])[ylim_na]
@@ -785,7 +833,7 @@ def geom_text_repel(
     force_pull: float = 1.0,
     max_time: float = 0.5,
     max_iter: int = 10000,
-    max_overlaps: float = 10,
+    max_overlaps: Any = _UNSET,
     nudge_x: Any = 0,
     nudge_y: Any = 0,
     xlim: Any = (None, None),
@@ -794,7 +842,7 @@ def geom_text_repel(
     show_legend: Any = None,
     direction: str = "both",
     seed: Any = None,
-    verbose: bool = False,
+    verbose: Any = _UNSET,
     inherit_aes: bool = True,
     **kwargs: Any,
 ) -> Any:
@@ -830,6 +878,18 @@ def geom_text_repel(
     verbose
         If ``True``, emit a warning when labels are dropped due to ``max_overlaps``.
     """
+    if direction not in ("both", "x", "y"):
+        # Matches R's ``match.arg(direction)`` validation (geom-text-repel.R:229).
+        raise ValueError(
+            f"`direction` must be one of 'both', 'x', 'y'; got {direction!r}"
+        )
+    # Resolve option-backed defaults the way R's ``getOption`` does — at
+    # call time, so ``set_option("ggrepel.max.overlaps", 20)`` takes effect
+    # for subsequent factory calls (geom-text-repel.R:175,184).
+    if max_overlaps is _UNSET:
+        max_overlaps = _get_option("ggrepel.max.overlaps", 10)
+    if verbose is _UNSET:
+        verbose = _get_option("verbose", False)
     if (nudge_x != 0 or nudge_y != 0) and position != "identity":
         raise ValueError(
             "Both `position` and `nudge_x`/`nudge_y` are supplied. "

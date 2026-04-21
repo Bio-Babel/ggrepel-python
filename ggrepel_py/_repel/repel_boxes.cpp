@@ -673,7 +673,11 @@ static py::dict repel_boxes2(py::array_t<double, py::array::c_style | py::array:
                   " iterations (" + std::to_string(elapsed_ns / 1e9) + "s), " +
                   std::to_string(p_overlaps) + " overlaps";
         }
-        py::module_::import("warnings").attr("warn")(msg);
+        // Mirror R's ``rlang::inform`` (stderr-only diagnostic, not a
+        // warning): route through ggrepel_py's named logger instead of
+        // ``warnings.warn`` to avoid being intercepted by ``-W error``
+        // or ``pytest.warns`` filters.
+        py::module_::import("ggrepel_py._options").attr("inform")(msg);
     }
 
     py::array_t<double> xs(n_texts);

@@ -17,6 +17,7 @@ from ggrepel_py.position_nudge_repel import (
     PositionNudgeRepel,
     position_nudge_repel,
 )
+from ggrepel_py._options import get_option, set_option
 
 __version__ = "0.9.8.9999"
 
@@ -30,4 +31,6 @@ __all__ = [
     "geom_label_repel",
     "PositionNudgeRepel",
     "position_nudge_repel",
+    "get_option",
+    "set_option",
 ]
