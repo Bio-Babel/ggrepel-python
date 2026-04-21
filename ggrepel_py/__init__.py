@@ -20,6 +20,7 @@ from ggrepel_py.position_nudge_repel import (
 from ggrepel_py._options import get_option, set_option
 
 __version__ = "0.9.8.9999"
+__r_commit__ = "458aa50"
 
 __all__ = [
     "__version__",

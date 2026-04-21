@@ -7,30 +7,79 @@ requires = [
 build-backend = "scikit_build_core.build"
 
 [project]
-name = "ggrepel_py"
+name = "ggrepel-python"
 version = "0.9.8.9999"
-description = "Python port of the R ggrepel package: non-overlapping text/label layout for ggplot2_py."
+description = "Python port of the R ggrepel package: non-overlapping text/label layout for ggplot2_py (tracks R ggrepel 0.9.8.9999)"
+readme = "README.md"
 requires-python = ">=3.10"
 license = "GPL-3.0-or-later"
-authors = [{name = "ggrepel_py contributors"}]
+license-files = ["LICENSE"]
+authors = [
+    { name = "Jeffery Liu", email = "jeffliu.lucky@gmail.com" },
+]
+keywords = [
+    "ggrepel",
+    "ggplot2",
+    "label-layout",
+    "text-repel",
+    "R-port",
+    "visualization",
+]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Science/Research",
+    "Intended Audience :: Developers",
+    "Operating System :: POSIX :: Linux",
+    "Operating System :: MacOS",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: C++",
+    "Topic :: Scientific/Engineering :: Visualization",
+    "Typing :: Typed",
+]
 dependencies = [
     "numpy>=1.24",
     "pandas>=2.0",
-    "ggplot2_py",
-    "scales_py",
-    "grid_py",
-    "gtable_py",
+    "ggplot2-python>=4.0.2",
+    "scales-python>=1.4.0",
+    "rgrid-python>=4.5.3",
+    "gtable-python>=0.3.6",
 ]
 
 [project.optional-dependencies]
-dev = ["pytest", "pytest-cov", "ruff"]
-docs = ["mkdocs", "mkdocstrings[python]", "mkdocs-material", "mkdocs-jupyter"]
+dev = ["pytest", "pytest-cov", "ruff", "build", "twine"]
+docs = [
+    "mkdocs",
+    "mkdocstrings[python]",
+    "mkdocs-material",
+    "mkdocs-jupyter",
+]
+
+[project.urls]
+Homepage      = "https://github.com/Bio-Babel/ggrepel-python"
+Repository    = "https://github.com/Bio-Babel/ggrepel-python"
+Issues        = "https://github.com/Bio-Babel/ggrepel-python/issues"
+Documentation = "https://github.com/Bio-Babel/ggrepel-python#readme"
 
 [tool.scikit-build]
 cmake.version = ">=3.18"
 cmake.build-type = "Release"
 wheel.packages = ["ggrepel_py"]
 wheel.install-dir = "."
+sdist.exclude = [
+    "tutorials/",
+    "docs/",
+    "tests/",
+    "site/",
+    "validation/",
+    "mkdocs.yml",
+    ".github/",
+    "*.egg-info/",
+    "build/",
+    "dist/",
+]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
